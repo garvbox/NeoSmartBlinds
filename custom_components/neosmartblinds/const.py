@@ -53,4 +53,3 @@ CMD_DOWN3 = "d3"
 # commands for fully opening and closing a top-down/bottom-up blind
 CMD_TDBU_OPEN = "op"
 CMD_TDBU_CLOSE = "cl"
-
