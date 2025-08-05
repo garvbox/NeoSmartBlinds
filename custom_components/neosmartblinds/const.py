@@ -10,6 +10,7 @@ CONF_PERCENT_SUPPORT = "percent_support"
 CONF_MOTOR_CODE = "motor_code"
 CONF_START_POSITION = "start_position"
 CONF_PARENT = "parent_group"
+CONF_TILT_ENABLED = "tilt_enabled"
 
 LEGACY_POSITIONING = 0
 EXPLICIT_POSITIONING = 1

@@ -32,6 +32,7 @@ from .const import (
     CONF_PROTOCOL,
     CONF_RAIL,
     CONF_START_POSITION,
+    CONF_TILT_ENABLED,
     DATA_NEOSMARTBLINDS,
     EXPLICIT_POSITIONING,
     IMPLICIT_POSITIONING,
@@ -39,16 +40,6 @@ from .const import (
 )
 
 PARALLEL_UPDATES = 0
-
-SUPPORT_NEOSMARTBLINDS = (
-    CoverEntityFeature.OPEN
-    | CoverEntityFeature.CLOSE
-    | CoverEntityFeature.SET_POSITION
-    | CoverEntityFeature.OPEN_TILT
-    | CoverEntityFeature.CLOSE_TILT
-    | CoverEntityFeature.SET_TILT_POSITION
-    | CoverEntityFeature.STOP
-)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -83,6 +74,9 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
             "starting position else it will be restored from the last run",
         ): cv.positive_int,
         vol.Optional(CONF_PARENT, description="Parent group code in app"): cv.string,
+        vol.Optional(
+            CONF_TILT_ENABLED, description="Enable/Disable tilt support", default=False
+        ): cv.boolean,
     }
 )
 
@@ -103,6 +97,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         config.get(CONF_MOTOR_CODE),
         config.get(CONF_START_POSITION),
         config.get(CONF_PARENT),
+        config.get(CONF_TILT_ENABLED),
     )
     async_add_entities([cover])
 
@@ -306,6 +301,7 @@ class NeoSmartBlindsCover(CoverEntity, RestoreEntity):
         motor_code,
         starting_position,
         parent_code,
+        tilt_enabled,
     ):
         """Initialize the cover."""
         self.home_assistant = home_assistant
@@ -323,6 +319,7 @@ class NeoSmartBlindsCover(CoverEntity, RestoreEntity):
         self._pending_positioning_command = None
         # Event used to cleanly cancel a positioning command and stop the blind
         self._stopped = None
+        self._tilt_enabled = tilt_enabled
 
         def http_session_factory(timeout):
             """
@@ -367,10 +364,6 @@ class NeoSmartBlindsCover(CoverEntity, RestoreEntity):
         return False
 
     @property
-    def supported_features(self):
-        return SUPPORT_NEOSMARTBLINDS
-
-    @property
     def device_class(self):
         return "blind"
 
@@ -392,7 +385,7 @@ class NeoSmartBlindsCover(CoverEntity, RestoreEntity):
 
     @property
     def current_cover_tilt_position(self):
-        return 50
+        return 50 if self._tilt_enabled else None
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
