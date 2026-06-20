@@ -238,32 +238,26 @@ async def test_async_close_cover_to_keeps_correct_timing_when_independent_group_
         elapsed1 = stop_command_called_times["blind1"] - start_time
         elapsed2 = stop_command_called_times["blind2"] - start_time
 
-        # Let's trace the timing:
+        # Let's trace the timing (up lock serializes commands in gather):
         # Cover 1:
-        # - Starts at t = 0.
-        # - Checks backoff. No backoff sleep.
+        # - Acquires _up_lock at t = 0.
+        # - Backoff: global time_of_last_command is 0 → no sleep.
         # - Sets start timer for cover 1 at t = 0.
         # - Sends command to device 1 (takes 0.05s to return).
-        # - cover 1 wait starts at t = 0.05s.
-        # - cover 1 moves for 1.0s.
-        # - So cover 1 stops at t = 1.0s.
+        # - time_of_last_command = 0.05, lock released at t = 0.05.
+        # - cover 1 wait starts. Timer _start = 0, elapsed = 0.05, so wait 0.95s.
+        # - cover 1 stops at t = 1.0s.
         # Cover 2:
-        # - Starts at t = 0.
-        # - Checks backoff. Sees cover 1 was sent at t = 0.
-        # - Sleeps for backoff delay (0.05s).
-        # - Wake up at t = 0.05s.
-        # - Sets start timer for cover 2 at t = 0.05s.
+        # - Acquires _up_lock at t = 0.05 (was waiting).
+        # - Backoff: since_last = 0.05 - 0.05 = 0 → sleep 0.05s.
+        # - Sets start timer for cover 2 at t = 0.10.
         # - Sends command to device 2 (takes 0.05s to return).
-        # - cover 2 wait starts at t = 0.10s.
-        # - cover 2 moves for 1.0s.
-        # - So cover 2 stops at t = 1.05s.
-        # Both covers should run for exactly 1.0s from their command send time.
-        # So cover 1 elapsed should be ~1.00s.
-        # Cover 2 elapsed should be ~1.05s.
+        # - cover 2 wait starts. Timer _start = 0.10.
+        # - cover 2 stops at ~1.10s.
         assert elapsed1 == pytest.approx(1.0, abs=0.02), (
             f"Blind 1 stop command timing incorrect: {elapsed1:.3f}s"
         )
-        assert elapsed2 == pytest.approx(1.05, abs=0.02), (
+        assert elapsed2 == pytest.approx(1.10, abs=0.02), (
             f"Blind 2 stop command timing incorrect: {elapsed2:.3f}s"
         )
 

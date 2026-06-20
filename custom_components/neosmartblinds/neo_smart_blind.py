@@ -112,6 +112,7 @@ class NeoParentBlind:
                 pass
 
 
+_start_lock = asyncio.Lock()
 time_of_last_command = time.time()
 
 
@@ -123,8 +124,6 @@ async def async_backoff():
 
     if since_last < DEFAULT_COMMAND_BACKOFF:
         sleep_duration = DEFAULT_COMMAND_BACKOFF - since_last
-
-    time_of_last_command = now + sleep_duration
 
     if sleep_duration > 0.0:
         logger.debug(f"Delaying command for {sleep_duration:.3f}s")
@@ -176,7 +175,7 @@ class NeoCommandSender:
     async def async_send_command(
         self, command, parent_device=None, command_sent_callback=None, skip_backoff=False
     ):
-        global parents
+        global parents, time_of_last_command
         action = NeoParentBlind.USE_DEVICE
 
         if parent_device is not None:
@@ -193,17 +192,33 @@ class NeoCommandSender:
         if action == NeoParentBlind.USE_DEVICE:
             logger.debug(f"{self._device}, issuing command")
             if not skip_backoff:
-                await async_backoff()
-            if command_sent_callback is not None:
-                command_sent_callback()
-            return await self.async_send_command_to_device(command, self._device)
+                async with _start_lock:
+                    await async_backoff()
+                    if command_sent_callback is not None:
+                        command_sent_callback()
+                    result = await self.async_send_command_to_device(command, self._device)
+                    time_of_last_command = time.time()
+            else:
+                if command_sent_callback is not None:
+                    command_sent_callback()
+                result = await self.async_send_command_to_device(command, self._device)
+                time_of_last_command = time.time()
+            return result
         elif action == NeoParentBlind.CHANGE_DEVICE:
             logger.debug(f"{self._device}, issuing to group command instead {parent_device}")
             if not skip_backoff:
-                await async_backoff()
-            if parent_device in parents:
-                parents[parent_device].fire_callbacks()
-            return await self.async_send_command_to_device(command, parent_device)
+                async with _start_lock:
+                    await async_backoff()
+                    if parent_device in parents:
+                        parents[parent_device].fire_callbacks()
+                    result = await self.async_send_command_to_device(command, parent_device)
+                    time_of_last_command = time.time()
+            else:
+                if parent_device in parents:
+                    parents[parent_device].fire_callbacks()
+                result = await self.async_send_command_to_device(command, parent_device)
+                time_of_last_command = time.time()
+            return result
         else:
             logger.debug(f"{self._device}, aggregated to group command")
             return True
