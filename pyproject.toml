@@ -9,16 +9,15 @@ dependencies = [
     "homeassistant (>=2025.7.4)",
 ]
 
-[tool.poetry]
-package-mode = false
-
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.12.7"
-pytest = "^8.4.1"
+[dependency-groups]
+dev = ["ruff>=0.12.7", "pytest>=8.4.1", "pytest-anyio"]
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["custom_components*"]
 
 
 [tool.ruff]
