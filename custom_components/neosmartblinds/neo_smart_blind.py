@@ -33,11 +33,12 @@ class NeoParentBlind:
         self._time_of_first_intent = None
         self._intended_command = None
         self._wait = asyncio.Event()
+        self._callbacks = []
 
     def add_child(self):
         self._child_count += 1
 
-    def register_intent(self, command):
+    def register_intent(self, command, callback=None):
         if self._intended_command is None:
             self._intended_command = command
 
@@ -50,6 +51,9 @@ class NeoParentBlind:
             return False
 
         self._intent += 1
+        if callback is not None:
+            self._callbacks.append(callback)
+
         if self._intent >= self._child_count:
             self._fulfilled = True
             self._wait.set()
@@ -66,6 +70,15 @@ class NeoParentBlind:
             self._time_of_first_intent = None
             self._intended_command = None
             self._wait.clear()
+            self._callbacks.clear()
+
+    def fire_callbacks(self):
+        for cb in self._callbacks:
+            try:
+                cb()
+            except Exception as e:
+                logger.error(f"Error calling group command callback: {e}")
+        self._callbacks.clear()
 
     CHANGE_DEVICE = 0
     IGNORE = 1
@@ -160,7 +173,7 @@ class NeoCommandSender:
 
         parents[device].add_child()
 
-    async def async_send_command(self, command, parent_device=None):
+    async def async_send_command(self, command, parent_device=None, command_sent_callback=None):
         global parents
         action = NeoParentBlind.USE_DEVICE
 
@@ -169,7 +182,7 @@ class NeoCommandSender:
             if parent_device in parents:
                 logger.debug(f"{self._device}, checking for aggregation {parent_device}")
                 parent = parents[parent_device]
-                if parent.register_intent(command):
+                if parent.register_intent(command, command_sent_callback):
                     await parent.async_backoff()
                     action = parent.act_on_intent()
                     parent.unregister_intent()
@@ -178,10 +191,14 @@ class NeoCommandSender:
         if action == NeoParentBlind.USE_DEVICE:
             logger.debug(f"{self._device}, issuing command")
             await async_backoff()
+            if command_sent_callback is not None:
+                command_sent_callback()
             return await self.async_send_command_to_device(command, self._device)
         elif action == NeoParentBlind.CHANGE_DEVICE:
             logger.debug(f"{self._device}, issuing to group command instead {parent_device}")
             await async_backoff()
+            if parent_device in parents:
+                parents[parent_device].fire_callbacks()
             return await self.async_send_command_to_device(command, parent_device)
         else:
             logger.debug(f"{self._device}, aggregated to group command")
@@ -283,14 +300,16 @@ class NeoSmartBlind:
             f"{prefix}.{self._command_sender.device}.{self._command_sender.motor_code}.{self._rail}"
         )
 
-    async def async_set_position_by_percent(self, pos):
+    async def async_set_position_by_percent(self, pos, command_sent_callback=None):
         """Flip position percentage
 
         NeoBlinds works off of percent closed, but HA works off of percent open
         """
         closed_pos = 100 - pos
         padded_position = f"{closed_pos:02}"
-        return await self._command_sender.async_send_command(padded_position, self._parent_code)
+        return await self._command_sender.async_send_command(
+            padded_position, self._parent_code, command_sent_callback
+        )
 
     async def async_stop_command(self):
         return await self._command_sender.async_send_command(CMD_STOP, self._parent_code)
@@ -309,18 +328,26 @@ class NeoSmartBlind:
             return await self._command_sender.async_send_command(CMD_MICRO_DOWN2)
         return False
 
-    async def async_down_command(self):
+    async def async_down_command(self, command_sent_callback=None):
         if self._rail == 1:
-            return await self._command_sender.async_send_command(CMD_DOWN, self._parent_code)
+            return await self._command_sender.async_send_command(
+                CMD_DOWN, self._parent_code, command_sent_callback
+            )
         elif self._rail == 2:
-            return await self._command_sender.async_send_command(CMD_DOWN2, self._parent_code)
+            return await self._command_sender.async_send_command(
+                CMD_DOWN2, self._parent_code, command_sent_callback
+            )
         return False
 
-    async def async_up_command(self):
+    async def async_up_command(self, command_sent_callback=None):
         if self._rail == 1:
-            return await self._command_sender.async_send_command(CMD_UP, self._parent_code)
+            return await self._command_sender.async_send_command(
+                CMD_UP, self._parent_code, command_sent_callback
+            )
         elif self._rail == 2:
-            return await self._command_sender.async_send_command(CMD_UP2, self._parent_code)
+            return await self._command_sender.async_send_command(
+                CMD_UP2, self._parent_code, command_sent_callback
+            )
         return False
 
     async def async_set_fav_position(self, pos):

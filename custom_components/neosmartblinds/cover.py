@@ -13,7 +13,6 @@ from homeassistant.components.cover import (
     ATTR_CURRENT_POSITION,
     PLATFORM_SCHEMA,
     CoverEntity,
-    CoverEntityFeature,
 )
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -146,20 +145,29 @@ class PositioningRequest:
     def starting_position(self):
         return self._starting_position
 
+    def start_timer(self):
+        """
+        Reset the start time when the command is actually sent to the hub.
+        """
+        self._start = time.time()
+
     async def async_wait(self, reason, cover):
         """
         Wait on the positioning request to complete.
 
         Can be interrupted by adjust() or interrupt().
         """
-        elapsed = 0
+        elapsed = time.time() - self._start
         while True:
             LOGGER.info(
                 f"{cover.name} sleeping for {self._active_wait} to allow for "
                 f"{reason} to {self._target_position}, elapsed={elapsed}"
             )
+            timeout = self._active_wait - elapsed
+            if timeout <= 0:
+                raise TimeoutError()
             await asyncio.wait_for(
-                asyncio.create_task(self._interrupt.wait()), self._active_wait - elapsed
+                asyncio.create_task(self._interrupt.wait()), timeout
             )
             elapsed = time.time() - self._start
             if self._adjusted_wait is not None:
@@ -426,9 +434,9 @@ class NeoSmartBlindsCover(CoverEntity, RestoreEntity):
 
         # Issue the move command
         if (
-            await self._client.async_down_command()
+            await self._client.async_down_command(self._pending_positioning_command.start_timer)
             if move_command is None
-            else await move_command()
+            else await move_command(self._pending_positioning_command.start_timer)
         ):
             LOGGER.info(f"{self._name} closing to {target_position}")
             # Put the positioning request on the ha queue to run in parallel but don't await it
@@ -470,7 +478,11 @@ class NeoSmartBlindsCover(CoverEntity, RestoreEntity):
         self._current_action = ACTION_OPENING
 
         # Issue the move command
-        if await self._client.async_up_command() if move_command is None else await move_command():
+        if (
+            await self._client.async_up_command(self._pending_positioning_command.start_timer)
+            if move_command is None
+            else await move_command(self._pending_positioning_command.start_timer)
+        ):
             LOGGER.info(f"{self._name} opening to {target_position}")
             # Put the positioning request on the ha queue to run in parallel but don't await it
             # here (we want to continue)
