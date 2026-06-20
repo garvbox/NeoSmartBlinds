@@ -173,7 +173,9 @@ class NeoCommandSender:
 
         parents[device].add_child()
 
-    async def async_send_command(self, command, parent_device=None, command_sent_callback=None):
+    async def async_send_command(
+        self, command, parent_device=None, command_sent_callback=None, skip_backoff=False
+    ):
         global parents
         action = NeoParentBlind.USE_DEVICE
 
@@ -190,13 +192,15 @@ class NeoCommandSender:
         # if parent fulfilled, use it else continue
         if action == NeoParentBlind.USE_DEVICE:
             logger.debug(f"{self._device}, issuing command")
-            await async_backoff()
+            if not skip_backoff:
+                await async_backoff()
             if command_sent_callback is not None:
                 command_sent_callback()
             return await self.async_send_command_to_device(command, self._device)
         elif action == NeoParentBlind.CHANGE_DEVICE:
             logger.debug(f"{self._device}, issuing to group command instead {parent_device}")
-            await async_backoff()
+            if not skip_backoff:
+                await async_backoff()
             if parent_device in parents:
                 parents[parent_device].fire_callbacks()
             return await self.async_send_command_to_device(command, parent_device)
@@ -312,7 +316,9 @@ class NeoSmartBlind:
         )
 
     async def async_stop_command(self):
-        return await self._command_sender.async_send_command(CMD_STOP, self._parent_code)
+        return await self._command_sender.async_send_command(
+            CMD_STOP, self._parent_code, skip_backoff=True
+        )
 
     async def async_open_cover_tilt(self, **kwargs):
         if self._rail == 1:
